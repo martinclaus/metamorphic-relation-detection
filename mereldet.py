@@ -14,6 +14,10 @@ import numpy as np
 import math
 from typing import Any, Callable
 
+# Type aliases
+FuncUnderTest = Callable[[np.ndarray], float]
+MRType = Callable[[np.ndarray], np.ndarray]
+
 # Small number to prevent devision by zero in cost function
 EPS = 1e-10
 
@@ -28,10 +32,10 @@ function_under_test = dict(
 
 
 def calculate_cost(
-    fun: Callable[[np.ndarray], float],
+    fun: FuncUnderTest,
     input: list[np.ndarray],
-    morph_relation_guess: Any,
-    morph_relations: list[Any],
+    morph_relation_guess: MRType,
+    morph_relations: list[MRType],
 ) -> float:
     """Evaluate cost function.
 
@@ -39,29 +43,43 @@ def calculate_cost(
 
     Parameters:
     -----------
-    fun: Callable[[np.ndarray], float]
+    fun: FuncUnderTest
         Funtion under test. Here, we are limiting ourself to functions accepting a single numpy
         array of floats as argument which return a float.
     input: list[np.ndarray]
         Set of input data to estimate the cost from.
-    morph_relations: list[Any]
+    morph_relation_guess: MRType
+        Metamorphic relation candidate
+    morph_relations: list[MRType]
         List of already identified metmorphic relations.
 
     Returns:
     --------
     float: Value of the cost function
     """
-    nominator = map(
-        lambda x: np.sqrt(((fun(morph_relation_guess(x)) - fun(x)) ** 2)), input
+    cost = sum(
+        map(
+            lambda x: (
+                _nominator(x, fun, morph_relation_guess)
+                / _denominator(x, morph_relation_guess, morph_relations)
+            ),
+            input,
+        )
     )
-    denominator = map(
-        lambda x: EPS
-        + math.prod(
-            map(
-                lambda g: ((morph_relation_guess(x) - g(x)) ** 2).sum(), morph_relations
-            )
-        ),
-        input,
-    )
-    cost = sum(map(lambda x, y: x / y, nominator, denominator))
     return cost
+
+
+def _denominator(
+    x: np.ndarray, morph_relation_guess: MRType, morph_relations: list[MRType]
+) -> float:
+    """Calculate the denominator of the cost function for a single input."""
+    return EPS + math.prod(
+        map(lambda g: ((morph_relation_guess(x) - g(x)) ** 2).sum(), morph_relations)
+    )
+
+
+def _nominator(
+    x: np.ndarray, fun: FuncUnderTest, morph_relation_guess: MRType
+) -> float:
+    """Calculate the nominator of the cost function for a single input."""
+    return np.sqrt(((fun(morph_relation_guess(x)) - fun(x)) ** 2))
