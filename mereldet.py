@@ -16,10 +16,12 @@ from typing import Any, Callable
 
 # Type aliases
 FuncUnderTest = Callable[[np.ndarray], float]
-MRType = Callable[[np.ndarray], np.ndarray]
 
 # Small number to prevent devision by zero in cost function
 EPS = 1e-10
+
+# mutation scale
+MUT_SCALE = 1e-1
 
 # Test functions for experimentation
 # Note that `sum` has one non-trivial metamorphic relation with significant
@@ -31,11 +33,50 @@ function_under_test = dict(
 )
 
 
+class MRCandidate:
+    """Candidate for a metamorphic relation."""
+
+    __slots__ = ["scale", "bias"]
+
+    def __init__(self, scale: np.ndarray, bias: np.ndarray):
+        """Create a metamorphic relation candidate."""
+        assert scale.ndim == 2
+        assert bias.ndim == 1
+        assert scale.shape == (len(bias), len(bias))
+        self.scale = scale
+        self.bias = bias
+
+    @classmethod
+    def from_identity(cls, size: int = 2) -> "MRCandidate":
+        """Create a metamorphic relation candidate from the identity map."""
+        scale = np.eye(size)
+        bias = np.zeros(size)
+        return cls(scale, bias)
+
+    def new_guess(self) -> "MRCandidate":
+        """Return a mutated version of this candidate."""
+        scale, bais = self.scale, self.bias
+        scale = self.scale + MUT_SCALE * (np.random.rand(*self.scale.shape) - 1)
+        bias = self.bias + MUT_SCALE * (np.random.rand(*self.bias.shape) - 1)
+        return MRCandidate(scale, bias)
+
+    def set_bias(self, bias: np.ndarray) -> "MRCandidate":
+        self.bias = bias
+        return self
+
+    def set_scale(self, scale: np.ndarray) -> "MRCandidate":
+        self.scale = scale
+        return self
+
+    def __call__(self, x: np.ndarray) -> np.ndarray:
+        return self.scale.dot(x) + self.bias
+
+
 def calculate_cost(
     fun: FuncUnderTest,
     input: list[np.ndarray],
-    morph_relation_guess: MRType,
-    morph_relations: list[MRType],
+    morph_relation_guess: MRCandidate,
+    morph_relations: list[MRCandidate],
 ) -> float:
     """Evaluate cost function.
 
@@ -70,7 +111,7 @@ def calculate_cost(
 
 
 def _denominator(
-    x: np.ndarray, morph_relation_guess: MRType, morph_relations: list[MRType]
+    x: np.ndarray, morph_relation_guess: MRCandidate, morph_relations: list[MRCandidate]
 ) -> float:
     """Calculate the denominator of the cost function for a single input."""
     return EPS + math.prod(
@@ -79,7 +120,7 @@ def _denominator(
 
 
 def _nominator(
-    x: np.ndarray, fun: FuncUnderTest, morph_relation_guess: MRType
+    x: np.ndarray, fun: FuncUnderTest, morph_relation_guess: MRCandidate
 ) -> float:
     """Calculate the nominator of the cost function for a single input."""
     return np.sqrt(((fun(morph_relation_guess(x)) - fun(x)) ** 2))
