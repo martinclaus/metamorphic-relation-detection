@@ -1,6 +1,12 @@
 # Unit test of mereldet
 import numpy as np
-from mereldet import function_under_test, calculate_cost, MRCandidate, FuncUnderTest
+from mereldet import (
+    Optimizer,
+    function_under_test,
+    calculate_cost,
+    MRCandidate,
+    FuncUnderTest,
+)
 
 
 def test_eval_mr_for_single_input():
@@ -49,3 +55,16 @@ def test_calculate_cost():
     assert calculate_cost(fun, input, g_guess_2, g_f) < calculate_cost(
         fun, input, g_guess_3, g_f
     )
+
+
+def test_optimizer_mutates_guess():
+    # training data
+    input = np.random.rand(10, 2)
+    # function under test
+    fun = function_under_test["prod"]
+
+    optimizer = Optimizer(fun, calculate_cost, input)
+    mr = optimizer.create_new_candidate()
+    mod_mr = optimizer.mutate(mr)
+    assert (mr.scale != mod_mr.scale).any()
+    assert (mr.bias != mod_mr.bias).any()

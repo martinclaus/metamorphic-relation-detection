@@ -22,7 +22,10 @@ FuncUnderTest = Callable[[np.ndarray], float]
 EPS = 1e-10
 
 # mutation scale
-MUT_SCALE = 1e-1
+MUT_SCALE = 1e-2
+
+# Optimizer tolerance
+OPT_TOL = 1e-6
 
 # Test functions for experimentation
 # Note that `sum` has one non-trivial metamorphic relation with significant
@@ -51,13 +54,6 @@ class MRCandidate:
         bias = np.zeros(size)
         return cls(scale, bias)
 
-    def new_guess(self) -> "MRCandidate":
-        """Return a mutated version of this candidate."""
-        scale, bais = self.scale, self.bias
-        scale = self.scale + MUT_SCALE * (np.random.rand(*self.scale.shape) - 1)
-        bias = self.bias + MUT_SCALE * (np.random.rand(*self.bias.shape) - 1)
-        return MRCandidate(scale, bias)
-
     def set_bias(self, bias: np.ndarray) -> "MRCandidate":
         self.bias = bias
         return self
@@ -68,6 +64,73 @@ class MRCandidate:
 
     def __call__(self, x: np.ndarray) -> np.ndarray:
         return x.dot(self.scale.T) + self.bias
+
+
+class Optimizer:
+    """Find the minimum of a given cost function for a funciton under test."""
+
+    def __init__(
+        self,
+        function_under_test: FuncUnderTest,
+        cost_function: Callable,
+        training_data: np.ndarray,
+    ):
+        self.function_under_test = function_under_test
+        self.cost_function = cost_function
+        self.training_data = training_data
+
+        self.known_mrs = [MRCandidate.from_identity(size=self._input_size())]
+        self.iteration: int = 0
+        self.trace: dict[str, list] = dict(iteration=[], cost=[])
+
+    def create_new_candidate(self) -> MRCandidate:
+        """Create a new initial MR Candidate by mutating the identity map.
+
+        The initial mutation is 10 times larger than all subsequent mutations.
+        """
+        new_guess = MRCandidate.from_identity(size=self._input_size())
+        new_guess = self.mutate(new_guess, std=10 * MUT_SCALE)
+        return new_guess
+
+    def mutate(self, guess: MRCandidate, std: float = MUT_SCALE):
+        """Create a new MR candidate by randomly mutating an existing one.
+
+        The exiting MR guess will be randomly mutated where the mutations are
+        drawn from a normal distribution located at 0 and scaled by `std`.
+        """
+        scale = guess.scale
+        bias = guess.bias
+        return MRCandidate(
+            scale=scale + std * np.random.randn(*scale.shape),
+            bias=bias + std * np.random.randn(self._input_size()),
+        )
+
+    def optimize(self, mut_scale=MUT_SCALE, tol=OPT_TOL, timeout=1_000) -> MRCandidate:
+        mr = self.create_new_candidate()
+        cost = self.cost_function(
+            self.function_under_test, self.training_data, mr, self.known_mrs
+        )
+        for _ in range(timeout):
+            if self._is_close(tol):
+                break
+            self.iteration += 1
+            new_mr = self.mutate(mr, std=mut_scale)
+            new_cost = self.cost_function(
+                self.function_under_test, self.training_data, new_mr, self.known_mrs
+            )
+            if new_cost < cost:
+                mr = new_mr
+                cost = new_cost
+                self.trace["iteration"].append(self.iteration)
+                self.trace["cost"].append(cost)
+
+        return mr
+
+    def _input_size(self) -> int:
+        return self.training_data.shape[-1]
+
+    def _is_close(self, tol) -> bool:
+        return False
 
 
 def calculate_cost(
