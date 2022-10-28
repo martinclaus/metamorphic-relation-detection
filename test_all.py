@@ -3,9 +3,8 @@ import numpy as np
 from mereldet import (
     Optimizer,
     function_under_test,
-    calculate_cost,
     MRCandidate,
-    FuncUnderTest,
+    CostFunction,
 )
 
 
@@ -22,29 +21,27 @@ def test_mr_eval_broadcasting_correctly():
 def test_cost_of_mr_evals_to_zero():
     # training data
     input = np.random.rand(10, 2)
-    # function under test
-    fun: FuncUnderTest = function_under_test["prod"]  # type: ignore
-    # known metamorphic relations
-    g_f = [MRCandidate.from_identity()]
+    cost_function = CostFunction(
+        function_under_test["prod"], [MRCandidate.from_identity(size=2)]  # type: ignore
+    )
 
     # this is a metamorphic relation
     g_guess = MRCandidate.from_identity().set_scale(np.array([[2.0, 0], [0, 0.5]]))
 
-    assert calculate_cost(fun, input, g_guess, g_f) == 0.0
+    assert cost_function(input, g_guess) == 0.0
 
 
 def test_calculate_cost():
     # training data
     input = np.random.rand(10, 2)
-    # function under test
-    fun = function_under_test["prod"]
-    # known metamorphic relations
-    g_f = [MRCandidate.from_identity()]
+    cost_function = CostFunction(
+        function_under_test["prod"], [MRCandidate.from_identity(size=2)]  # type: ignore
+    )
 
     # this is a metamorphic relation
     g_guess = MRCandidate.from_identity().set_scale(np.array([[2.0, 0], [0, 0.5]]))
 
-    assert calculate_cost(fun, input, g_guess, g_f) == 0.0
+    assert cost_function(input, g_guess) == 0.0
 
     # this is not a metamorphic relation
     g_guess_2 = MRCandidate.from_identity().set_scale(np.array([[2.0, 0], [0, 0.51]]))
@@ -52,18 +49,18 @@ def test_calculate_cost():
     # this is even more not a metamorphic relation
     g_guess_3 = MRCandidate.from_identity().set_scale(np.array([[2.0, 0], [0, 0.6]]))
 
-    assert calculate_cost(fun, input, g_guess_2, g_f) < calculate_cost(
-        fun, input, g_guess_3, g_f
-    )
+    assert cost_function(input, g_guess_2) < cost_function(input, g_guess_3)
 
 
 def test_optimizer_mutates_guess():
     # training data
     input = np.random.rand(10, 2)
-    # function under test
-    fun = function_under_test["prod"]
+    # cost function
+    cost_function = CostFunction(
+        function_under_test["prod"], [MRCandidate.from_identity(size=2)]  # type: ignore
+    )
 
-    optimizer = Optimizer(fun, calculate_cost, input)
+    optimizer = Optimizer(cost_function, input)
     mr = optimizer.create_new_candidate()
     mod_mr = optimizer.mutate(mr)
     assert (mr.scale != mod_mr.scale).any()

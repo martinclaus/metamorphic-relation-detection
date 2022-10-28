@@ -13,7 +13,6 @@ See https://doi.org/10.1109/MET52542.2021.00014
 import numpy as np
 from typing import Callable
 from functools import partial, reduce
-from operator import mul
 
 # Type aliases
 FuncUnderTest = Callable[[np.ndarray], float]
@@ -66,16 +65,64 @@ class MRCandidate:
         return x.dot(self.scale.T) + self.bias
 
 
+class CostFunction:
+    """Base class of cost function.
+
+    Also provides implementation as in the short paper https://doi.org/10.1109/MET52542.2021.00014
+    """
+
+    def __init__(self, f: FuncUnderTest, morph_relations: list[MRCandidate]):
+        self.f = f
+        self.morph_relations = morph_relations
+
+    def __call__(self, input: np.ndarray, mr_candidate: MRCandidate) -> float:
+        self.eval.__doc__
+        return self.eval(input, mr_candidate)
+
+    def eval(self, input: np.ndarray, candidate: MRCandidate) -> float:
+        """Evaluate cost function.
+
+        The cost function given by equation (7) of https://doi.org/10.1109/MET52542.2021.00014
+
+        Parameters:
+        -----------
+        input: np.ndarray
+            Set of input data to estimate the cost from. Each row is a record of input data.
+        mr_candidate: MRCandidate
+            Metamorphic relation candidate
+
+        Returns:
+        --------
+        float: Value of the cost function
+        """
+        morph_in = candidate(input)
+        # TODO: Needs to be changed if function under test returns an array
+        nom = np.abs(self.f(morph_in) - self.f(input))
+        denom = EPS + reduce(
+            np.multiply,
+            map(
+                lambda g: ((morph_in - g(input)) ** 2).sum(axis=-1),
+                self.morph_relations,
+            ),
+        )
+        cost = (nom / denom).sum()
+        return cost
+
+    def distance_in_codomain(
+        self, input: np.ndarray, candidate: MRCandidate
+    ) -> np.ndarray:
+        """Compute absolute distance of morphed input to original input in codomain."""
+        return np.array(np.abs(self.f(candidate(input)) - self.f(input)))
+
+
 class Optimizer:
     """Find the minimum of a given cost function for a funciton under test."""
 
     def __init__(
         self,
-        function_under_test: FuncUnderTest,
-        cost_function: Callable,
+        cost_function: CostFunction,
         training_data: np.ndarray,
     ):
-        self.function_under_test = function_under_test
         self.cost_function = cost_function
         self.training_data = training_data
 
@@ -107,25 +154,21 @@ class Optimizer:
 
     def optimize(self, mut_scale=MUT_SCALE, tol=OPT_TOL, timeout=1_000) -> MRCandidate:
         mr = self.create_new_candidate()
-        cost = self.cost_function(
-            self.function_under_test, self.training_data, mr, self.known_mrs
-        )
+        cost = self.cost_function(self.training_data, mr)
         for _ in range(timeout):
             if self._is_close(tol):
                 break
             self.iteration += 1
             new_mr = self.mutate(mr, std=mut_scale)
-            new_cost = self.cost_function(
-                self.function_under_test, self.training_data, new_mr, self.known_mrs
-            )
+            new_cost = self.cost_function(self.training_data, new_mr)
             if new_cost < cost:
                 mr = new_mr
                 cost = new_cost
                 self.trace["iteration"].append(self.iteration)
                 self.trace["cost"].append(cost)
                 self.trace["mean_dist"].append(
-                    distance_in_codomain(
-                        self.training_data, self.function_under_test, mr
+                    self.cost_function.distance_in_codomain(
+                        self.training_data, mr
                     ).mean()
                 )
 
@@ -136,65 +179,3 @@ class Optimizer:
 
     def _is_close(self, tol) -> bool:
         return False
-
-
-def distance_in_codomain(input: np.ndarray, f: FuncUnderTest, candidate: MRCandidate):
-    """Compute absolute distance of morphed input to original input in codomain."""
-    return np.abs(f(candidate(input)) - f(input))
-
-
-def calculate_cost(
-    fun: FuncUnderTest,
-    input: np.ndarray,
-    morph_relation_guess: MRCandidate,
-    morph_relations: list[MRCandidate],
-) -> float:
-    """Evaluate cost function.
-
-    The cost function given by equation (7) of https://doi.org/10.1109/MET52542.2021.00014
-
-    Parameters:
-    -----------
-    fun: FuncUnderTest
-        Funtion under test. Here, we are limiting ourself to functions accepting a single numpy
-        array of floats as argument which return a float.
-    input: np.ndarray
-        Set of input data to estimate the cost from. Each row is a record of input data.
-    morph_relation_guess: MRCandidate
-        Metamorphic relation candidate
-    morph_relations: list[MRCandidate]
-        List of already identified metmorphic relations.
-
-    Returns:
-    --------
-    float: Value of the cost function
-    """
-    morph_in = morph_relation_guess(input)
-    # TODO: Needs to be changed if function under test returns an array
-    nom = np.abs(fun(morph_in) - fun(input))
-    denom = EPS + reduce(
-        np.multiply,
-        map(lambda g: ((morph_in - g(input)) ** 2).sum(axis=-1), morph_relations),
-    )
-    cost = (nom / denom).sum()
-    return cost
-
-
-def _denominator(
-    x: np.ndarray, morph_relation_guess: MRCandidate, morph_relations: list[MRCandidate]
-) -> float:
-    """Calculate the denominator of the cost function for a single input."""
-    return EPS + reduce(
-        np.multiply,
-        map(
-            lambda g: ((morph_relation_guess(x) - g(x)) ** 2).sum(axis=-1),
-            morph_relations,
-        ),
-    )
-
-
-def _nominator(
-    x: np.ndarray, fun: FuncUnderTest, morph_relation_guess: MRCandidate
-) -> float:
-    """Calculate the nominator of the cost function for a single input."""
-    return np.abs(fun(morph_relation_guess(x)) - fun(x))
