@@ -11,8 +11,9 @@ See https://doi.org/10.1109/MET52542.2021.00014
 """
 
 import numpy as np
-import math
-from typing import Any, Callable
+from typing import Callable
+from functools import partial, reduce
+from operator import mul
 
 # Type aliases
 FuncUnderTest = Callable[[np.ndarray], float]
@@ -27,10 +28,7 @@ MUT_SCALE = 1e-1
 # Note that `sum` has one non-trivial metamorphic relation with significant
 # entries only for the bias and `prod` has one non-trivial metamorphic relation
 # with significant entries only for the scaling part of the affine transformation.
-function_under_test = dict(
-    sum=np.sum,
-    prod=np.prod,
-)
+function_under_test = dict(sum=partial(np.sum, axis=-1), prod=partial(np.prod, axis=-1))
 
 
 class MRCandidate:
@@ -69,12 +67,12 @@ class MRCandidate:
         return self
 
     def __call__(self, x: np.ndarray) -> np.ndarray:
-        return self.scale.dot(x) + self.bias
+        return x.dot(self.scale.T) + self.bias
 
 
 def calculate_cost(
     fun: FuncUnderTest,
-    input: list[np.ndarray],
+    input: np.ndarray,
     morph_relation_guess: MRCandidate,
     morph_relations: list[MRCandidate],
 ) -> float:
@@ -87,26 +85,25 @@ def calculate_cost(
     fun: FuncUnderTest
         Funtion under test. Here, we are limiting ourself to functions accepting a single numpy
         array of floats as argument which return a float.
-    input: list[np.ndarray]
-        Set of input data to estimate the cost from.
-    morph_relation_guess: MRType
+    input: np.ndarray
+        Set of input data to estimate the cost from. Each row is a record of input data.
+    morph_relation_guess: MRCandidate
         Metamorphic relation candidate
-    morph_relations: list[MRType]
+    morph_relations: list[MRCandidate]
         List of already identified metmorphic relations.
 
     Returns:
     --------
     float: Value of the cost function
     """
-    cost = sum(
-        map(
-            lambda x: (
-                _nominator(x, fun, morph_relation_guess)
-                / _denominator(x, morph_relation_guess, morph_relations)
-            ),
-            input,
-        )
+    morph_in = morph_relation_guess(input)
+    # TODO: Needs to be changed if function under test returns an array
+    nom = np.abs(fun(morph_in) - fun(input))
+    denom = EPS + reduce(
+        np.multiply,
+        map(lambda g: ((morph_in - g(input)) ** 2).sum(axis=-1), morph_relations),
     )
+    cost = (nom / denom).sum()
     return cost
 
 
@@ -114,8 +111,12 @@ def _denominator(
     x: np.ndarray, morph_relation_guess: MRCandidate, morph_relations: list[MRCandidate]
 ) -> float:
     """Calculate the denominator of the cost function for a single input."""
-    return EPS + math.prod(
-        map(lambda g: ((morph_relation_guess(x) - g(x)) ** 2).sum(), morph_relations)
+    return EPS + reduce(
+        np.multiply,
+        map(
+            lambda g: ((morph_relation_guess(x) - g(x)) ** 2).sum(axis=-1),
+            morph_relations,
+        ),
     )
 
 
