@@ -81,7 +81,7 @@ class Optimizer:
 
         self.known_mrs = [MRCandidate.from_identity(size=self._input_size())]
         self.iteration: int = 0
-        self.trace: dict[str, list] = dict(iteration=[], cost=[])
+        self.trace: dict[str, list] = dict(iteration=[], cost=[], mean_dist=[])
 
     def create_new_candidate(self) -> MRCandidate:
         """Create a new initial MR Candidate by mutating the identity map.
@@ -123,6 +123,11 @@ class Optimizer:
                 cost = new_cost
                 self.trace["iteration"].append(self.iteration)
                 self.trace["cost"].append(cost)
+                self.trace["mean_dist"].append(
+                    distance_in_codomain(
+                        self.training_data, self.function_under_test, mr
+                    ).mean()
+                )
 
         return mr
 
@@ -131,6 +136,11 @@ class Optimizer:
 
     def _is_close(self, tol) -> bool:
         return False
+
+
+def distance_in_codomain(input: np.ndarray, f: FuncUnderTest, candidate: MRCandidate):
+    """Compute absolute distance of morphed input to original input in codomain."""
+    return np.abs(f(candidate(input)) - f(input))
 
 
 def calculate_cost(
@@ -187,4 +197,4 @@ def _nominator(
     x: np.ndarray, fun: FuncUnderTest, morph_relation_guess: MRCandidate
 ) -> float:
     """Calculate the nominator of the cost function for a single input."""
-    return np.sqrt(((fun(morph_relation_guess(x)) - fun(x)) ** 2))
+    return np.abs(fun(morph_relation_guess(x)) - fun(x))
