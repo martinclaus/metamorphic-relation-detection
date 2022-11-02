@@ -169,13 +169,11 @@ class Optimizer:
             if new_cost < cost:
                 mr = new_mr
                 cost = new_cost
-                self.trace["iteration"].append(self.iteration)
-                self.trace["cost"].append(cost)
-                self.trace["mean_dist"].append(
-                    self.cost_function.distance_in_codomain(
-                        self.training_data, mr
-                    ).mean()
-                )
+            self.trace["iteration"].append(self.iteration)
+            self.trace["cost"].append(cost)
+            self.trace["mean_dist"].append(
+                self.cost_function.distance_in_codomain(self.training_data, mr).mean()
+            )
 
         return mr
 
