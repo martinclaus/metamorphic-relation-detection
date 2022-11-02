@@ -11,7 +11,7 @@ See https://doi.org/10.1109/MET52542.2021.00014
 """
 
 import numpy as np
-from typing import Callable
+from typing import Callable, Optional
 from functools import partial, reduce
 
 # Type aliases
@@ -122,9 +122,14 @@ class Optimizer:
         self,
         cost_function: CostFunction,
         training_data: np.ndarray,
+        rng: Optional[np.random.Generator] = None,
     ):
         self.cost_function = cost_function
         self.training_data = training_data
+        if rng is None:
+            self.rng = np.random.default_rng()
+        else:
+            self.rng = rng
 
         self.known_mrs = [MRCandidate.from_identity(size=self._input_size())]
         self.iteration: int = 0
@@ -148,8 +153,8 @@ class Optimizer:
         scale = guess.scale
         bias = guess.bias
         return MRCandidate(
-            scale=scale + std * np.random.randn(*scale.shape),
-            bias=bias + std * np.random.randn(self._input_size()),
+            scale=scale + self.rng.normal(loc=0, scale=std, size=scale.shape),
+            bias=bias + self.rng.normal(loc=0, scale=std, size=bias.shape),
         )
 
     def optimize(self, mut_scale=MUT_SCALE, tol=OPT_TOL, timeout=1_000) -> MRCandidate:
