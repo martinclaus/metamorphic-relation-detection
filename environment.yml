@@ -11,3 +11,6 @@ dependencies:
   - black
   - pytest
   - seaborn
+  - dask
+  - distributed
+  
